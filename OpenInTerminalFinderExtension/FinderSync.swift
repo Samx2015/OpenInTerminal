@@ -107,23 +107,19 @@ class FinderSync: FIFinderSync {
     func createDefaultMenu() -> NSMenu {
         let menu = NSMenu(title: "")
         
-        guard let terminal = DefaultsManager.shared.defaultTerminal else { return menu }
-        let terminalTitle = terminal.name
-        let openInTerminalItem = NSMenuItem(title: terminalTitle,
-                                            action: #selector(openDefaultTerminal),
-                                            keyEquivalent: "")
-        let terminalIcon = DefaultsManager.shared.getAppIcon(terminal)
-        openInTerminalItem.image = terminalIcon
-        menu.addItem(openInTerminalItem)
+        if let terminal = DefaultsManager.shared.defaultTerminal {
+            addAppMenuItem(to: menu,
+                           app: terminal,
+                           action: #selector(openDefaultTerminal))
+        }
         
-        guard let editor = DefaultsManager.shared.defaultEditor else { return menu }
-        let editorTitle = editor.name
-        let openInEditorItem = NSMenuItem(title: editorTitle,
-                                            action: #selector(openDefaultEditor),
-                                            keyEquivalent: "")
-        let editorIcon = DefaultsManager.shared.getAppIcon(editor)
-        openInEditorItem.image = editorIcon
-        menu.addItem(openInEditorItem)
+        if let editor = DefaultsManager.shared.defaultEditor {
+            addAppMenuItem(to: menu,
+                           app: editor,
+                           action: #selector(openDefaultEditor))
+        }
+        
+        addFixedAppMenuItems(to: menu)
         
         // add "Copy Path"
         menu.addItem(self.copyPathItem)
@@ -135,9 +131,7 @@ class FinderSync: FIFinderSync {
         let menu = NSMenu(title: "")
         
         // get saved custom apps
-        guard let customApps = DefaultsManager.shared.customMenuOptions else {
-            return menu
-        }
+        let customApps = DefaultsManager.shared.customMenuOptions ?? []
         customApps.forEach { app in
             let itemTitle = app.name
             let menuItem = NSMenuItem(title: itemTitle,
@@ -148,10 +142,31 @@ class FinderSync: FIFinderSync {
             menu.addItem(menuItem)
         }
         
+        addFixedAppMenuItems(to: menu)
+        
         // add "Copy Path"
         menu.addItem(self.copyPathItem)
         
         return menu
+    }
+    
+    func addFixedAppMenuItems(to menu: NSMenu) {
+        addAppMenuItem(to: menu,
+                       title: "Open in VSCode",
+                       app: SupportedApps.vscode.app,
+                       action: #selector(openVSCode))
+        addAppMenuItem(to: menu,
+                       title: "Open in Codex",
+                       app: SupportedApps.codex.app,
+                       action: #selector(openCodex))
+    }
+    
+    func addAppMenuItem(to menu: NSMenu, title: String? = nil, app: App, action: Selector) {
+        let menuItem = NSMenuItem(title: title ?? app.name,
+                                  action: action,
+                                  keyEquivalent: "")
+        menuItem.image = DefaultsManager.shared.getAppIcon(app)
+        menu.addItem(menuItem)
     }
 
     // MARK: - Actions
@@ -229,6 +244,14 @@ class FinderSync: FIFinderSync {
     @objc func openDefaultEditor() {
         guard let editor = DefaultsManager.shared.defaultEditor else { return }
         open(editor)
+    }
+    
+    @objc func openVSCode() {
+        open(SupportedApps.vscode.app)
+    }
+    
+    @objc func openCodex() {
+        open(SupportedApps.codex.app)
     }
     
     @objc func customMenuItemClicked(_ sender: NSMenuItem) {

@@ -285,6 +285,8 @@ public class DefaultsManager {
             return neovimCommand
         } else if SupportedApps.is(app, is: .gitKraken) {
             return gitKrakenCommand
+        } else if SupportedApps.is(app, is: .codex) {
+            return "/Applications/Codex.app/Contents/Resources/codex app"
         } else {
             return "open -a \(app.name.nameSpaceEscaped(escapeCount))"
         }

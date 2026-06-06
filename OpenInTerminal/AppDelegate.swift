@@ -43,6 +43,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         } catch {
             logw(error.localizedDescription)
         }
+        
+        showFinderExtensionSetupIfNeeded()
     }
     
     func applicationWillTerminate(_ notification: Notification) {
@@ -135,6 +137,137 @@ extension AppDelegate {
         NSApp.activate(ignoringOtherApps: true)
         preferencesWindowController.showWindow(self)
         preferencesWindowController.window?.makeKeyAndOrderFront(self)
+    }
+    
+    func showFinderExtensionSetupIfNeeded() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            if !self.isFinderExtensionEnabled() {
+                self.activateForUserInteraction()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    self.askHowToOpenFinderExtensionSettings()
+                }
+            }
+        }
+    }
+    
+    func askHowToOpenFinderExtensionSettings() {
+        activateForUserInteraction()
+        
+        let alert = NSAlert()
+        alert.messageText = "Enable the Finder extension?"
+        alert.informativeText = """
+        OpenInTerminal adds Finder context menu items through a bundled Finder extension.
+        
+        You can enable it automatically, or open macOS Extensions settings and find OpenInTerminal by app name.
+        """
+        alert.alertStyle = .informational
+        alert.addButton(withTitle: "Enable Automatically")
+        alert.addButton(withTitle: "Open Settings")
+        alert.addButton(withTitle: "Not Now")
+        alert.window.level = .modalPanel
+        alert.window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        alert.window.center()
+        alert.window.orderFrontRegardless()
+        activateForUserInteraction()
+        
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            if !enableFinderExtensionAutomatically() {
+                openFinderExtensionSettings(shouldRegisterFinderExtension: true)
+            }
+        case .alertSecondButtonReturn:
+            openFinderExtensionSettings(shouldRegisterFinderExtension: true)
+        default:
+            logw("Skipped Finder extension settings")
+        }
+    }
+    
+    func openFinderExtensionSettings(shouldRegisterFinderExtension: Bool) {
+        logw("Opening Finder extension settings; register extension: \(shouldRegisterFinderExtension)")
+        if shouldRegisterFinderExtension {
+            registerFinderExtensionForSettings()
+        }
+        
+        openSystemSettings("x-apple.systempreferences:com.apple.LoginItems-Settings.extension?ExtensionItems")
+    }
+    
+    @discardableResult
+    func openSystemSettings(_ urlString: String) -> Bool {
+        guard let url = URL(string: urlString) else { return false }
+        return NSWorkspace.shared.open(url)
+    }
+    
+    func activateForUserInteraction() {
+        NSApp.setActivationPolicy(.regular)
+        NSApp.unhide(nil)
+        NSRunningApplication.current.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
+        NSApp.activate(ignoringOtherApps: true)
+    }
+    
+    @discardableResult
+    func registerFinderExtensionForSettings() -> Bool {
+        guard let pluginsURL = Bundle.main.builtInPlugInsURL else { return false }
+        let extensionURL = pluginsURL.appendingPathComponent("OpenInTerminalFinderExtension.appex")
+        guard FileManager.default.fileExists(atPath: extensionURL.path) else { return false }
+        
+        guard let result = runPlugInKit(arguments: ["-a", extensionURL.path]) else { return false }
+        if result.status != 0 {
+            logw("pluginkit registration failed: \(result.status); \(result.output)")
+            return false
+        }
+        return true
+    }
+    
+    func enableFinderExtensionAutomatically() -> Bool {
+        guard registerFinderExtensionForSettings() else { return false }
+        guard let result = runPlugInKit(arguments: ["-e", "use", "-i", Constants.Id.FinderExtension]) else {
+            return false
+        }
+        
+        if result.status != 0 {
+            logw("pluginkit enable failed: \(result.status); \(result.output)")
+            return false
+        }
+        
+        let isEnabled = isFinderExtensionEnabled()
+        logw("Finder extension automatically enabled: \(isEnabled)")
+        return isEnabled
+    }
+    
+    func isFinderExtensionEnabled() -> Bool {
+        guard let result = runPlugInKit(arguments: ["-m", "-A", "-D", "-i", Constants.Id.FinderExtension]) else {
+            return false
+        }
+        
+        let isEnabled = result.output.components(separatedBy: .newlines).contains { line in
+            let trimmedLine = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmedLine.contains(Constants.Id.FinderExtension)
+                && (trimmedLine.hasPrefix("+") || trimmedLine.hasPrefix("!"))
+        }
+        
+        logw("Finder extension enabled: \(isEnabled)")
+        return isEnabled
+    }
+    
+    func runPlugInKit(arguments: [String]) -> (output: String, status: Int32)? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/pluginkit")
+        process.arguments = arguments
+        
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+        
+        do {
+            try process.run()
+            process.waitUntilExit()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            let output = String(data: data, encoding: .utf8) ?? ""
+            return (output: output, status: process.terminationStatus)
+        } catch {
+            logw("cannot run pluginkit \(arguments): \(error)")
+            return nil
+        }
     }
     
     // MARK: - Notification
